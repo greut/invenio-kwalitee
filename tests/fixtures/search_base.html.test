@@ -1,0 +1,213 @@
+{#
+## This file is part of Invenio.
+## Copyright (C) 2012, 2014 CERN.
+##
+## Invenio is free software; you can redistribute it and/or
+## modify it under the terms of the GNU General Public License as
+## published by the Free Software Foundation; either version 2 of the
+## License, or (at your option) any later version.
+##
+## Invenio is distributed in the hope that it will be useful, but
+## WITHOUT ANY WARRANTY; without even the implied warranty of
+## MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+## General Public License for more details.
+##
+## You should have received a copy of the GNU General Public License
+## along with Invenio; if not, write to the Free Software Foundation, Inc.,
+## 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+#}
+
+{% extends "search/searchbar_frame.html" %}
+
+{% from "search/results.html" import render_search_results with context %}
+
+{% block global_css %}
+  {{ super() }}
+  {%- css url_for('static', filename='css/formatter/templates_brief.css'), '00-search' -%}
+  {%- css url_for('static', filename='css/search/search.css'), '00-search' -%}
+{% endblock %}
+
+{%- set portalboxes = dict() -%}
+{%- for k,l in collection.portalboxes_ln|groupby('position') -%}
+  {%- do portalboxes.update({k:l}) -%}
+{%- endfor -%}
+
+{% block title %}
+  {{ portalboxes.tp }}
+  {{ super() }}
+  {{ portalboxes.te }}
+{% endblock %}
+{% block header %}
+  {{ super() }}
+  {%- set args = request.args.copy().to_dict() -%}
+  {%- set jrec = (pagination.page-2)*pagination.per_page+1 if pagination.has_prev else 1 -%}
+  {%- do args.update({'jrec': jrec}) -%}
+  {%- if pagination.has_prev -%}
+  <link rel="prev" href="{{ url_for(request.endpoint, **args) }}"/>
+  {%- endif -%}
+  {%- if pagination.has_next -%}
+  {%- set jrec = (pagination.page)*pagination.per_page+1 if pagination.has_next else (pagination.pages-1)*pagination.per_page+1 -%}
+  {%- do args.update({'jrec': jrec}) -%}
+  <link rel="next" href="{{ url_for(request.endpoint, **args) }}"/>
+  {%- endif -%}
+{% endblock %}
+
+{%- block inner_content -%}
+  {%- block index -%}
+    {%- if not recids|length -%}
+      {%- block index_noresult -%}
+        <div class="row">
+          <div class="col-md-12">
+            <p>
+              <strong>{{ _('Your search did not match any records. Please try again.') }}</strong>
+            </p>
+            {{ create_nearest_terms_box()|safe }}
+          </div>
+        </div>
+      {%- endblock index_noresult -%}
+    {%- else -%}
+      {%- block index_results -%}
+        <div class="row">
+          {%- block facets %}
+            <div class="col-sm-3 col-md-3">
+              <div class="facet" id="facet_list"></div>
+            </div>
+          {%- endblock facets %}
+          {%- block index_right -%}
+            <div class="col-md-9 col-lg-9">
+              {%- block results %}
+                <div class="row">
+                  <div id="search_results" class="col-md-12">
+                    {%- block search_results -%}
+                      {{ render_search_results(recids, collection, pagination, format_record) }}
+                    {%- endblock search_results -%}
+                  </div>
+                </div>
+              {%- endblock results %}
+            </div>
+          {%- endblock index_right -%}
+        </div>
+        {%- block filter_modal -%}
+<div class="modal hide" id="overlay">
+            <div class="modal-body">
+              <center>
+              <img alt="" src="/img/loading.gif" id="img-load" />
+              <strong>{{ _('Filtering') }} ...</strong>
+              </center>
+            </div>
+          </div>
+        {%- endblock filter_modal -%}
+      {%- endblock index_results -%}
+    {%- endif -%}
+  {%- endblock index -%}
+{%- endblock -%}
+
+{% block javascript %}
+  {{ super() }}
+  {% if recids|length %}
+    <script>
+    (function($) {
+
+      var request_args = {{ request.args.to_dict()|tojson|safe }};
+      var previous_search_query = decodeURIComponent('{{ request.args.get('p', '') }}');
+      var search_url = '{{ url_for('search.search') }}';
+      var facets_content = {{ facets|tojson|safe }};
+
+      // disable hotkeys due to conflict with typeahead hotkeys
+{#      {% if current_user.settings.get('websearch_hotkeys', '1') == '1' -%}#}
+{#        , hotkeys = Hotkeys({}) // enable hotkeys#}
+{#      {%- endif %}#}
+
+      // Enable tooltips.
+      $('[rel=tooltip]').tooltip();
+
+      var $facet_list = $('#facet_list');
+
+      {% block facets_configuration %}
+
+      $facet_list.facet($.extend({}, getFacetLinksConf(), {
+        facets: facets_content,
+        activate_modifier_keys: true
+      }));
+
+      {% endblock facets_configuration %}
+
+      var facet_engine = $facet_list.data('facet-engine');
+
+      function mergeQuieries(query_a, query_b, operator) {
+        if (!query_a)
+          return query_b;
+        if (!query_b)
+          return query_a;
+
+        return query_a + ' ' + operator + ' ' + query_b;
+      }
+
+      /**
+       * Updates facets state stored in url hash
+       *
+       * @param facet_engine
+       * @method updateStoredFacetsState
+       */
+      function updateStoredFacetsState(facet_engine) {
+        var facets_state = facet_engine.getState()
+          , hash = decodeURIComponent(document.location.hash);
+
+        if (facets_state && Object.keys(facets_state).length > 0) {
+          var stringified_state = JSON.stringify(facets_state);
+          if (stringified_state != hash.substr(1))
+            document.location.hash = encodeURIComponent(stringified_state);
+        } else {
+          document.location.hash = '';
+        }
+      }
+
+      function updateSearchResults(request_args, search_url) {
+        $.ajax(search_url, {
+          type: 'GET',
+          data: request_args,
+        }).done(function(data) {
+          $('#search_results').html(data);
+        });
+      }
+
+      $facet_list.on('updated', function(event) {
+
+        var facet_query = facet_engine.getInvenioQuery(!!previous_search_query);
+        var merged_search_query = mergeQuieries(previous_search_query, facet_query, 'AND');
+
+        $('#search-box-main input[name=p]').val(merged_search_query);
+
+        updateStoredFacetsState(facet_engine);
+
+        request_args.p = merged_search_query;
+
+        updateSearchResults(request_args, search_url);
+      });
+
+      function getFacetsStateFromHash() {
+        var hash = decodeURIComponent(document.location.hash)
+          , state = hash.substr(1);
+        if (state.length)
+          return jQuery.parseJSON(state);
+      }
+
+      // Rebuild facet filter on hash change.
+      $(window).bind('hashchange', function() {
+        var facets_state = getFacetsStateFromHash();
+        if (JSON.stringify(facet_engine.getState()) != JSON.stringify(facets_state)) {
+          facet_engine.loadState(facets_state);
+        }
+      });
+
+      // Load facets state on page load
+      if (document.location.hash.length > 2) {
+        var facets_state = getFacetsStateFromHash();
+        facet_engine.loadState(facets_state);
+      }
+
+    })(jQuery);
+
+    </script>
+  {% endif %}
+{% endblock %}

@@ -41,6 +41,9 @@ class TestCheckFile(TestCase):
         self.license_html = "{0}license.html.test".format(fixtures)
         self.license_js = "{0}license.js.test".format(fixtures)
         self.license_css = "{0}license.css.test".format(fixtures)
+        # Issue #30
+        self.search_html = "{0}search_base.html.test".format(fixtures)
+        self.searchbar_html = "{0}searchbar_frame.html.test".format(fixtures)
 
 
 class TestCheckPep8(TestCheckFile):
@@ -156,3 +159,11 @@ class TestCheckLicense(TestCheckFile):
         """invalid_license doesn't look like the GNU GPL"""
         errors = check_license(self.invalid_license, year=2014)
         assert_that(errors, has_item("25: I103 license is not GNU GPLv2"))
+
+    def test_issue_30(self):
+        """valid copyright must be valid (#30)"""
+        errors = check_license(self.search_html, year=2014)
+        assert_that(errors, has_length(0))
+
+        errors = check_license(self.searchbar_html, year=2014)
+        assert_that(errors, has_length(0))
